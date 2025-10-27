@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <title>Prijava - Budget App</title>
+</head>
+<body>
+  <h2>Prijava</h2>
+  <input id="email" type="email" placeholder="Email"><br>
+  <input id="lozinka" type="password" placeholder="Lozinka"><br>
+  <button id="loginBtn">Prijavi se</button>
+
+  <script type="module">
+    import { auth } from './firebase-config.js';
+    import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const email = document.getElementById("email").value;
+      const lozinka = document.getElementById("lozinka").value;
+
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, lozinka);
+        localStorage.setItem("uid", userCredential.user.uid);
+        window.location = "dashboard.html";
+      } catch (error) {
+        alert("Greška u prijavi: " + error.message);
+      }
+    });
+  </script>
+</body>
+</html>
