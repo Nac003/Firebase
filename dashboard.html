@@ -15,7 +15,7 @@
   <ul id="stednja"></ul>
 
   <script type="module">
-    import { auth, db } from './firebase-config.js';
+    import { auth, db, isAdmin } from './firebase-config.js';
     import { signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
     import { ref, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
@@ -34,29 +34,32 @@
         return;
       }
 
+      // Provjeri je li korisnik admin
+      const admin = await isAdmin(user.uid);
+
       // Dohvati cijelu bazu
       const snapshot = await get(ref(db));
-      const data = snapshot.val();
+      const data = snapshot.val() || {};
 
-      // Pronađi korisnika u bazi prema emailu
-      const korisnici = data.korisnici;
-      const userRecord = Object.entries(korisnici).find(([id, val]) => val.email === user.email);
-      if (!userRecord) {
-        alert("Korisnik nije pronađen u bazi!");
-        return;
+      let transakcije, stednje;
+
+      if (admin) {
+        // Admin vidi sve
+        transakcije = Object.values(data.budget_korisnika || {});
+        stednje = Object.values(data.stednja || {});
+      } else {
+        // Obični korisnik vidi samo svoje
+        transakcije = Object.values(data.budget_korisnika || {}).filter(t => t.id_korisnika === user.uid);
+        stednje = Object.values(data.stednja || {}).filter(s => s.id_korisnika === user.uid);
       }
 
-      const [userId, userData] = userRecord;
-
-      // Filtriraj transakcije i štednju
-      const transakcije = Object.values(data.budget_korisnika).filter(t => t.id_korisnika === userId);
-      const stednja = Object.values(data.stednja).filter(s => s.id_korisnika === userId);
-
+      // Prikaz transakcija
       transakcijeEl.innerHTML = transakcije
         .map(t => `<li>${t.kategorija}: ${t.iznos} (${t.tip_transakcije})</li>`)
         .join('');
 
-      stednjaEl.innerHTML = stednja
+      // Prikaz štednje
+      stednjaEl.innerHTML = stednje
         .map(s => `<li>${s.kategorija}: ${s.iznos} kn (rok: ${s.rok})</li>`)
         .join('');
     });
