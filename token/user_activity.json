@@ -1,0 +1,18 @@
+{
+  "log1": {
+    "id_korisnika": "9xc1aekVziPQmDjsl0aktAdVkC53",
+    "id_budget": "budget1",
+    "tip_transakcije": "trosak",
+    "iznos": 50,
+    "datum": "2025-11-03T09:45:00",
+    "opis": "Kupnja hrane"
+  },
+  "log2": {
+    "id_korisnika": "9xc1aekVziPQmDjsl0aktAdVkC53",
+    "id_stednje": "stednja1",
+    "tip_transakcije": "uplata_stednje",
+    "iznos": 100,
+    "datum": "2025-11-03T10:00:00",
+    "opis": "Mjesečna uplata za putovanje"
+  }
+}

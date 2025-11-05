@@ -1,0 +1,12 @@
+{
+  "name": "firebase-token",
+  "version": "1.0.0",
+  "main": "getToken.js",
+  "type": "module",
+  "scripts": {
+    "start": "node getToken.js"
+  },
+  "dependencies": {
+    "firebase": "^10.15.0"
+  }
+}
