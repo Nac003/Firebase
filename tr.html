@@ -2,7 +2,7 @@
 <html lang="hr">
 <head>
   <meta charset="UTF-8">
-  <title>Firebase Transakcije</title>
+  <title>Firebase Transakcije i Štednja</title>
 </head>
 <body>
   <h2>Dodaj transakciju</h2>
@@ -31,16 +31,13 @@
   <h3>👤 Aktivnosti korisnika:</h3>
   <div id="activity"></div>
 
-  <script type="module">
-    // -------------------------------
-    // 1️⃣ Uvoz Firebase SDK
-    // -------------------------------
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-    import { getDatabase, ref, push, set, onValue } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-database.js";
+  <h3>💰 Stanje štednje:</h3>
+  <div id="stednja">Učitavam...</div>
 
-    // -------------------------------
-    // 2️⃣ Konfiguracija baze
-    // -------------------------------
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getDatabase, ref, push, set, onValue, get, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-database.js";
+
     const firebaseConfig = {
       apiKey: "AIzaSyAlCyHgTglR1xh9GwhIhxoNh0POwXdINzE",
       authDomain: "natalia-ignac-danijela.firebaseapp.com",
@@ -55,13 +52,12 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // -------------------------------
-    // 3️⃣ Funkcija za logiranje transakcije
-    // -------------------------------
-    function logTransaction(action, details, userId) {
-      const logRef = ref(db, "transaction_log");
-      const newLog = push(logRef);
+    const userId = "demoUser123"; // za test, kasnije zamijeni s auth.currentUser.uid
 
+    // ------------------ Transaction Log funkcija (log)
+    function logTransaction(action, details, userId) {
+      const logRef = ref(db, "transaction_log"); // Transaction Log
+      const newLog = push(logRef);
       const logData = {
         datum: new Date().toISOString(),
         tip_transakcije: action,
@@ -69,74 +65,113 @@
         kategorija: details.kategorija,
         iznos: details.iznos
       };
-
-      set(newLog, logData)
-        .then(() => console.log("✅ Transaction log:", logData))
-        .catch(err => console.error("❌ Greška u logiranju transakcije:", err));
+      set(newLog, logData);
     }
 
-    // -------------------------------
-    // 4️⃣ Funkcija za logiranje aktivnosti korisnika
-    // -------------------------------
+    // ------------------ User Activity funkcija (log)
     function logUserActivity(userId, activityType, description) {
-      const activityRef = ref(db, "user_activity");
+      const activityRef = ref(db, "user_activity"); // User Activity
       const newActivity = push(activityRef);
-
       const activityData = {
         id_korisnika: userId,
-        aktivnost: activityType,   // npr. "dodavanje", "brisanje"
+        aktivnost: activityType,
         detalji: description,
         vrijeme: new Date().toISOString()
       };
-
-      set(newActivity, activityData)
-        .then(() => console.log("🪶 Aktivnost spremljena:", activityData))
-        .catch(err => console.error("❌ Greška u logiranju aktivnosti:", err));
+      set(newActivity, activityData);
     }
 
-    // -------------------------------
-    // 5️⃣ Submit forma
-    // -------------------------------
+    // ------------------ Trigger funkcija: dodavanje štednje (ako prihod u kategoriji sadrži "štednja")
+    async function dodajStednju(userId, kategorija, iznos) {
+      const stednjaRef = ref(db, "stednja");
+      const q = query(stednjaRef, orderByChild("id_korisnika"), equalTo(userId));
+      const snapshot = await get(q);
+
+      let idStednje;
+      let trenutno = 0;
+
+      if (snapshot.exists()) {
+        const key = Object.keys(snapshot.val())[0];
+        idStednje = key;
+        trenutno = snapshot.val()[key].iznos;
+      } else {
+        const newRef = push(stednjaRef);
+        idStednje = newRef.key;
+      }
+
+      trenutno += iznos;
+
+      const newData = {
+        id_stednje: idStednje,
+        id_korisnika: userId,
+        iznos: trenutno,
+        datum: new Date().toISOString()
+      };
+
+      await set(ref(db, `stednja/${idStednje}`), newData);
+      document.getElementById("stednja").innerText = `${trenutno.toFixed(2)} €`;
+      logUserActivity(userId, "ažuriranje štednje", `Novo stanje štednje: ${trenutno.toFixed(2)} €`); // user activity
+
+      // Dodaj transakciju i log u transaction log
+      const transRef = ref(db, "budget_korisnika"); // Transaction
+      const newTransRef = push(transRef);
+      const transData = {
+        id_korisnika: userId,
+        datum_transakcije: new Date().toISOString().split("T")[0],
+        kategorija: kategorija,
+        iznos: iznos,
+        tip_transakcije: "uplata_stednje",
+        id_stednje: idStednje
+      };
+      await set(newTransRef, transData);
+
+      const logRef = ref(db, "transaction_log"); // Transaction log
+      const noviLog = push(logRef);
+      await set(noviLog, {
+        id_korisnika: userId,
+        id_stednje: idStednje,
+        iznos: iznos,
+        kategorija: kategorija,
+        tip_transakcije: "uplata_stednje",
+        datum: new Date().toISOString()
+      });
+    }
+
+    // ------------------ Submit forma
     const form = document.getElementById("transakcija-form");
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
       const kategorija = document.getElementById("kategorija").value;
       const iznos = parseFloat(document.getElementById("iznos").value);
       const tip = document.getElementById("tip").value;
 
-      const userId = "demoUser123"; // kasnije zamijeni s auth.currentUser.uid
+      // Trigger logika: prihod koji ide u štednju
+      if (tip === "prihod" && kategorija.toLowerCase().includes("štednja")) {
+        await dodajStednju(userId, kategorija, iznos); // trigger
+      } else {
+        // Transaction log: obična transakcija
+        const transRef = ref(db, "budget_korisnika");
+        const newTrans = push(transRef);
+        const transData = {
+          id_korisnika: userId,
+          datum_transakcije: new Date().toISOString().split("T")[0],
+          kategorija: kategorija,
+          iznos: iznos,
+          tip_transakcije: tip
+        };
+        await set(newTrans, transData);
 
-      const transRef = ref(db, "budget_korisnika");
-      const newTrans = push(transRef);
+        logTransaction(tip, transData, userId); // transaction log
+        logUserActivity(userId, "dodavanje", `Dodana nova transakcija (${tip}): ${kategorija} - ${iznos}€`); // user activity
+      }
 
-      const transData = {
-        id_korisnika: userId,
-        datum_transakcije: new Date().toISOString().split("T")[0],
-        kategorija: kategorija,
-        iznos: iznos,
-        tip_transakcije: tip
-      };
-
-      set(newTrans, transData)
-        .then(() => {
-          console.log("✅ Nova transakcija dodana!");
-
-          // log
-          logTransaction(tip, transData, userId);
-          logUserActivity(userId, "dodavanje", `Dodana nova transakcija (${tip}): ${kategorija} - ${iznos}€`);
-
-          form.reset();
-        })
-        .catch(err => console.error("❌ Greška pri spremanju:", err));
+      form.reset();
     });
 
-    // -------------------------------
-    // 6️⃣ Prikaz logiranih transakcija
-    // -------------------------------
+    // ------------------ Prikaz logiranih transakcija (transaction log)
     const logsDiv = document.getElementById("logs");
     const logRef = ref(db, "transaction_log");
-
     onValue(logRef, snapshot => {
       const data = snapshot.val();
       logsDiv.innerHTML = "";
@@ -155,12 +190,9 @@
       }
     });
 
-    // -------------------------------
-    // 7️⃣ Prikaz aktivnosti korisnika
-    // -------------------------------
+    // ------------------ Prikaz aktivnosti korisnika (user activity)
     const activityDiv = document.getElementById("activity");
     const activityRef = ref(db, "user_activity");
-
     onValue(activityRef, snapshot => {
       const data = snapshot.val();
       activityDiv.innerHTML = "";
@@ -177,6 +209,22 @@
       } else {
         activityDiv.innerHTML = "<p>Nema aktivnosti još.</p>";
       }
+    });
+
+    // ------------------ Prikaz trenutne štednje
+    const stednjaDiv = document.getElementById("stednja");
+    const stednjaRef = ref(db, "stednja");
+    onValue(stednjaRef, snapshot => {
+      let ukupno = 0;
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        Object.keys(data).forEach(key => {
+          if (data[key].id_korisnika === userId) {
+            ukupno = data[key].iznos;
+          }
+        });
+      }
+      stednjaDiv.innerText = `${ukupno.toFixed(2)} €`;
     });
   </script>
 </body>
