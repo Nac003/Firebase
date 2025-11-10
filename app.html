@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <title>Budget App</title>
+</head>
+<body>
+  <h2>Budget App</h2>
+
+  <!-- LOGIN -->
+  <div id="login-section">
+    <input id="email" type="email" placeholder="Email"><br>
+    <input id="lozinka" type="password" placeholder="Lozinka"><br>
+    <button id="loginBtn">Prijavi se</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" style="display:none;">
+    <button id="logoutBtn">Odjava</button>
+    <h3>Dodaj transakciju</h3>
+    <form id="transakcija-form">
+      <label>Kategorija:</label><br>
+      <input type="text" id="kategorija" required><br><br>
+      <label>Iznos:</label><br>
+      <input type="number" id="iznos" required><br><br>
+      <label>Tip transakcije:</label><br>
+      <select id="tip">
+        <option value="trosak">Trošak</option>
+        <option value="prihod">Prihod</option>
+      </select><br><br>
+      <button type="submit">Spremi</button>
+    </form>
+
+    <h3>Transakcije:</h3>
+    <ul id="transakcije"></ul>
+
+    <h3>Štednja:</h3>
+    <ul id="stednja"></ul>
+
+    <h3>Aktivnosti korisnika:</h3>
+    <div id="activity"></div>
+  </div>
+
+  <script type="module">
+    import { auth, db, isAdmin } from './firebase-config.js';
+    import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { ref, push, set, get, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    let currentUserId;
+
+    const loginSection = document.getElementById("login-section");
+    const dashboard = document.getElementById("dashboard");
+
+    const emailInput = document.getElementById("email");
+    const lozinkaInput = document.getElementById("lozinka");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+
+    const transakcijeEl = document.getElementById("transakcije");
+    const stednjaEl = document.getElementById("stednja");
+    const activityDiv = document.getElementById("activity");
+    const form = document.getElementById("transakcija-form");
+
+    // LOGIN
+    loginBtn.addEventListener("click", async () => {
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, emailInput.value, lozinkaInput.value);
+        currentUserId = userCredential.user.uid;
+        loginSection.style.display = "none";
+        dashboard.style.display = "block";
+        loadDashboard();
+      } catch (e) {
+        alert("Greška u prijavi: " + e.message);
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      await signOut(auth);
+      loginSection.style.display = "block";
+      dashboard.style.display = "none";
+      currentUserId = null;
+    });
+
+    // ------------------ LOG FUNKCIJE ------------------
+    function logTransaction(action, details) {
+      const logRef = ref(db, "transaction_log");
+      const newLog = push(logRef);
+      set(newLog, {
+        datum: new Date().toISOString(),
+        tip_transakcije: details.tip_transakcije,
+        id_korisnika: currentUserId,
+        kategorija: details.kategorija,
+        iznos: details.iznos
+      });
+    }
+
+    function logUserActivity(activityType, description) {
+      const activityRef = ref(db, "user_activity");
+      const newActivity = push(activityRef);
+      set(newActivity, {
+        id_korisnika: currentUserId,
+        aktivnost: activityType,
+        detalji: description,
+        vrijeme: new Date().toISOString()
+      });
+    }
+
+    // ------------------ DASHBOARD FUNKCIJE ------------------
+    async function dodajStednju(kategorija, iznos) {
+      const stednjaRef = ref(db, "stednja");
+      const snapshot = await get(stednjaRef);
+      let trenutno = 0;
+      let idStednje;
+      if(snapshot.exists()) {
+        const data = snapshot.val();
+        const userStednje = Object.values(data).find(s => s.id_korisnika === currentUserId);
+        if(userStednje) {
+          idStednje = Object.keys(data).find(key => data[key] === userStednje);
+          trenutno = userStednje.iznos;
+        }
+      }
+      if(!idStednje) idStednje = push(stednjaRef).key;
+      trenutno += iznos;
+
+      await set(ref(db, `stednja/${idStednje}`), {
+        id_stednje: idStednje,
+        id_korisnika: currentUserId,
+        iznos: trenutno,
+        datum: new Date().toISOString()
+      });
+
+      logUserActivity("ažuriranje štednje", `Novo stanje: ${trenutno}`);
+      logTransaction("uplata_stednje", { tip_transakcije:"uplata_stednje", kategorija, iznos });
+      loadDashboard();
+    }
+
+    // SUBMIT TRANSAKCIJA
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      const kategorija = document.getElementById("kategorija").value;
+      const iznos = parseFloat(document.getElementById("iznos").value);
+      const tip = document.getElementById("tip").value;
+
+      if(tip==="prihod" && kategorija.toLowerCase().includes("štednja")) {
+        await dodajStednju(kategorija, iznos);
+      } else {
+        const newTransRef = push(ref(db, "budget_korisnika"));
+        const data = { id_korisnika: currentUserId, datum_transakcije:new Date().toISOString().split("T")[0], kategorija, iznos, tip_transakcije:tip };
+        await set(newTransRef, data);
+        logTransaction(tip, data);
+        logUserActivity("dodavanje", `Dodana nova transakcija (${tip}): ${kategorija} - ${iznos}€`);
+      }
+
+      form.reset();
+      loadDashboard();
+    });
+
+    // PRIKAZ DASHBOARD-a
+    function loadDashboard() {
+      // Transakcije
+      const transRef = ref(db, "budget_korisnika");
+      onValue(transRef, snapshot => {
+        const data = snapshot.val() || {};
+        transakcijeEl.innerHTML = "";
+        Object.values(data).filter(t => t.id_korisnika === currentUserId)
+          .forEach(t => transakcijeEl.innerHTML += `<li>${t.kategorija}: ${t.iznos} (${t.tip_transakcije})</li>`);
+      });
+
+      // Štednja
+      const stedRef = ref(db, "stednja");
+      onValue(stedRef, snapshot => {
+        const data = snapshot.val() || {};
+        stednjaEl.innerHTML = "";
+        Object.values(data).filter(s => s.id_korisnika === currentUserId)
+          .forEach(s => stednjaEl.innerHTML += `<li>${s.kategorija || 'Štednja'}: ${s.iznos} €</li>`);
+      });
+
+      // Aktivnosti
+      const actRef = ref(db, "user_activity");
+      onValue(actRef, snapshot => {
+        const data = snapshot.val() || {};
+        activityDiv.innerHTML = "";
+        Object.values(data).filter(a => a.id_korisnika === currentUserId)
+          .forEach(a => activityDiv.innerHTML += `<div>${a.aktivnost} - ${a.detalji}</div>`);
+      });
+    }
+
+    onAuthStateChanged(auth, user => {
+      if(user) {
+        currentUserId = user.uid;
+        loginSection.style.display="none";
+        dashboard.style.display="block";
+        loadDashboard();
+      }
+    });
+  </script>
+</body>
+</html>
