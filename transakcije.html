@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <title>Firebase Transakcije</title>
+</head>
+<body>
+  <h2>Dodaj transakciju</h2>
+
+  <form id="transakcija-form">
+    <label>Kategorija:</label><br>
+    <input type="text" id="kategorija" required><br><br>
+
+    <label>Iznos:</label><br>
+    <input type="number" id="iznos" required><br><br>
+
+    <label>Tip transakcije:</label><br>
+    <select id="tip">
+      <option value="trosak">Trošak</option>
+      <option value="prihod">Prihod</option>
+    </select><br><br>
+
+    <button type="submit">Spremi transakciju</button>
+  </form>
+
+  <hr>
+
+  <h3>✅ Logirane transakcije:</h3>
+  <div id="logs"></div>
+
+  <h3>👤 Aktivnosti korisnika:</h3>
+  <div id="activity"></div>
+
+  <script type="module">
+    // -------------------------------
+    // 1️⃣ Uvoz Firebase SDK
+    // -------------------------------
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getDatabase, ref, push, set, onValue } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-database.js";
+
+    // -------------------------------
+    // 2️⃣ Konfiguracija baze
+    // -------------------------------
+    const firebaseConfig = {
+      apiKey: "AIzaSyAlCyHgTglR1xh9GwhIhxoNh0POwXdINzE",
+      authDomain: "natalia-ignac-danijela.firebaseapp.com",
+      databaseURL: "https://natalia-ignac-danijela-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "natalia-ignac-danijela",
+      storageBucket: "natalia-ignac-danijela.firebasestorage.app",
+      messagingSenderId: "562828177333",
+      appId: "1:562828177333:web:89ab5165fc7bfcd63e33fc",
+      measurementId: "G-72Z5HZ8M4M"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // -------------------------------
+    // 3️⃣ Funkcija za logiranje transakcije
+    // -------------------------------
+    function logTransaction(action, details, userId) {
+      const logRef = ref(db, "transaction_log");
+      const newLog = push(logRef);
+
+      const logData = {
+        datum: new Date().toISOString(),
+        tip_transakcije: action,
+        id_korisnika: userId,
+        kategorija: details.kategorija,
+        iznos: details.iznos
+      };
+
+      set(newLog, logData)
+        .then(() => console.log("✅ Transaction log:", logData))
+        .catch(err => console.error("❌ Greška u logiranju transakcije:", err));
+    }
+
+    // -------------------------------
+    // 4️⃣ Funkcija za logiranje aktivnosti korisnika
+    // -------------------------------
+    function logUserActivity(userId, activityType, description) {
+      const activityRef = ref(db, "user_activity");
+      const newActivity = push(activityRef);
+
+      const activityData = {
+        id_korisnika: userId,
+        aktivnost: activityType,   // npr. "dodavanje", "brisanje"
+        detalji: description,
+        vrijeme: new Date().toISOString()
+      };
+
+      set(newActivity, activityData)
+        .then(() => console.log("🪶 Aktivnost spremljena:", activityData))
+        .catch(err => console.error("❌ Greška u logiranju aktivnosti:", err));
+    }
+
+    // -------------------------------
+    // 5️⃣ Submit forma
+    // -------------------------------
+    const form = document.getElementById("transakcija-form");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+
+      const kategorija = document.getElementById("kategorija").value;
+      const iznos = parseFloat(document.getElementById("iznos").value);
+      const tip = document.getElementById("tip").value;
+
+      const userId = "demoUser123"; // kasnije zamijeni s auth.currentUser.uid
+
+      const transRef = ref(db, "budget_korisnika");
+      const newTrans = push(transRef);
+
+      const transData = {
+        id_korisnika: userId,
+        datum_transakcije: new Date().toISOString().split("T")[0],
+        kategorija: kategorija,
+        iznos: iznos,
+        tip_transakcije: tip
+      };
+
+      set(newTrans, transData)
+        .then(() => {
+          console.log("✅ Nova transakcija dodana!");
+
+          // log
+          logTransaction(tip, transData, userId);
+          logUserActivity(userId, "dodavanje", `Dodana nova transakcija (${tip}): ${kategorija} - ${iznos}€`);
+
+          form.reset();
+        })
+        .catch(err => console.error("❌ Greška pri spremanju:", err));
+    });
+
+    // -------------------------------
+    // 6️⃣ Prikaz logiranih transakcija
+    // -------------------------------
+    const logsDiv = document.getElementById("logs");
+    const logRef = ref(db, "transaction_log");
+
+    onValue(logRef, snapshot => {
+      const data = snapshot.val();
+      logsDiv.innerHTML = "";
+      if (data) {
+        Object.keys(data).forEach(key => {
+          const log = data[key];
+          logsDiv.innerHTML += `
+            <div style="border:1px solid #ccc; padding:10px; margin:5px;">
+              <strong>${log.tip_transakcije}</strong> | ${log.kategorija} (${log.iznos} €)<br>
+              Datum: ${log.datum}
+            </div>
+          `;
+        });
+      } else {
+        logsDiv.innerHTML = "<p>Nema logiranih transakcija još.</p>";
+      }
+    });
+
+    // -------------------------------
+    // 7️⃣ Prikaz aktivnosti korisnika
+    // -------------------------------
+    const activityDiv = document.getElementById("activity");
+    const activityRef = ref(db, "user_activity");
+
+    onValue(activityRef, snapshot => {
+      const data = snapshot.val();
+      activityDiv.innerHTML = "";
+      if (data) {
+        Object.keys(data).forEach(key => {
+          const act = data[key];
+          activityDiv.innerHTML += `
+            <div style="border:1px solid #ccc; padding:10px; margin:5px;">
+              <strong>${act.aktivnost}</strong> | ${act.detalji}<br>
+              Vrijeme: ${act.vrijeme}
+            </div>
+          `;
+        });
+      } else {
+        activityDiv.innerHTML = "<p>Nema aktivnosti još.</p>";
+      }
+    });
+  </script>
+</body>
+</html>
